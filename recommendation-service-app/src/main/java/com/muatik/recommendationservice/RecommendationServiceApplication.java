@@ -13,6 +13,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.Arrays;
 
+
 @SpringBootApplication
 public class RecommendationServiceApplication {
     public static void main(String[] args) {
