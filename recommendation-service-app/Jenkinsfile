@@ -1,0 +1,43 @@
+APP_NAME = 'recommendation-service-app'
+NEW_VERSION = 'not-set'
+APP_PATH = APP_NAME
+
+environments = []
+pipeline {
+    agent {
+        docker {
+            image 'muatik/maven-docker'
+            args '-v /root/.m2:/root/.m2'
+        }
+    }
+
+    environment {
+      DOCKER_CREDENTIAL = credentials('docker-login')
+      DOCKER_REGISTRY_STAGING_EU = 'muatik/'
+      DOCKER_REGISTRY_PROD_EU = 'muatik/'
+    }
+
+    stages {
+
+      stage('build') {
+        steps {
+          checkout scm
+          script {
+            NEW_VERSION = sh(returnStdout: true, script: 'echo 0.0.1').trim()
+          }
+          mvn_build(APP_PATH, NEW_VERSION)
+        }
+      }
+
+
+
+    }
+}
+
+def mvn_build(path, version) {
+  sh """
+    mvn -f $path/pom.xml versions:set -DnewVersion=$version
+    mvn -f $path/pom.xml clean package -B
+  """
+}
+
