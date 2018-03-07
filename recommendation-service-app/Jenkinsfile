@@ -17,6 +17,14 @@ pipeline {
       DOCKER_REGISTRY_PROD_EU = 'muatik/'
     }
 
+
+    post {
+      always {
+        junit allowEmptyResults: true, testResults: '**/target/surefire-reports/*.xml'
+        archiveArtifacts artifacts: "$APP_NAME/target/*.jar", fingerprint: true
+      }
+    }
+
     stages {
 
       stage('build') {
@@ -29,7 +37,42 @@ pipeline {
         }
       }
 
+      stage('test') {
+          steps {
+              parallel integration: {
+                run_integration_test(APP_PATH)
+              },
+              smoke: {
+                smoke_test()
+              }
+          }
+      }
 
+      stage('package') {
+        steps {
+          build_and_push("${env.DOCKER_REGISTRY_STAGING_EU}", APP_NAME, NEW_VERSION, APP_PATH)
+        }
+      }
+
+      stage('deploy staging') {
+        steps {
+          deploy("eu-staging", env.DOCKER_REGISTRY_STAGING_EU, NEW_VERSION)
+        }
+      }
+
+      stage('deploy live') {
+        when {
+          branch 'master'
+        }
+        steps {
+          parallel 'eu-live': {
+            deploy('eu-staging', env.DOCKER_REGISTRY_STAGING_EU, NEW_VERSION)
+          },
+          'us-live': {
+            deploy('us-live', env.DOCKER_REGISTRY_STAGING_UD, NEW_VERSION)
+          }
+        }
+      }
 
     }
 }
@@ -41,3 +84,45 @@ def mvn_build(path, version) {
   """
 }
 
+def build_and_push(registry, name, version, dockerfile_path) {
+  docker_build(registry, name, version, dockerfile_path)
+  docker_push(registry, name, version, dockerfile_path)
+}
+
+def docker_build(registry, name, version, dockerfile_path) {
+  sh """
+  cd $dockerfile_path
+  docker build -t $name:$version .
+  docker tag $name:$version $registry$name:$version
+  docker tag $name:$version $registry$name:latest
+  """
+}
+
+def docker_push(registry, name, version, dockerfile_path) {
+  sh """
+  cd $dockerfile_path
+  docker login -u ${env.DOCKER_CREDENTIAL_USR} -p ${env.DOCKER_CREDENTIAL_PSW}
+  docker push $registry$name:$version
+  docker push $registry$name:latest
+  """
+}
+
+
+def run_integration_test(path) {
+  sh """
+  cd $path
+  docker-compose -f docker-compose-integration.yml up --build -d
+  docker-compose -f docker-compose-integration.yml run integration-test mvn clean test -Pintegration-tests
+  rc=\$?
+  docker-compose -f docker-compose-integration.yml down
+  exit \$rc
+  """
+}
+
+def smoke_test() {
+  echo "no smoke test found."
+}
+
+def deploy(environment, registry, version) {
+  echo "do your $environment deployment here"
+}
